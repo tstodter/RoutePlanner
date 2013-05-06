@@ -11,6 +11,7 @@ import java.util.Scanner;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import java.util.Comparator;
 
 
 public class RoutePlanner {
@@ -23,6 +24,8 @@ public class RoutePlanner {
 	}
 
 	void run() {
+		
+		
 		//Tools
 		Scanner scan = new Scanner(System.in);
 		
@@ -32,9 +35,15 @@ public class RoutePlanner {
 		Map<String, Stop> stops = new HashMap<String, Stop>();
 		Map<String, Route> routes = new HashMap<String, Route>();
 		
-		Queue<StopInTime> Q = new PriorityQueue<StopInTime>();
-		Map<StopInTime, StopInTime> priors = new HashMap<StopInTime, StopInTime>();
-		Set<StopInTime> visited = new HashSet<StopInTime>();
+		Map<Edge, Edge> priors = new HashMap<Edge, Edge>();
+		Set<String> visited = new HashSet<String>();
+		Queue<Edge> Q = new PriorityQueue<Edge>(64, 
+				new Comparator<Edge>() {
+					@Override
+					public int compare(Edge e1, Edge e2) {
+						return e1.second.time.compareTo(e2.second.time);
+					}			
+		});
 		
 		//
 		getTripData(trips);
@@ -62,11 +71,13 @@ public class RoutePlanner {
 		Stop endStop = stops.get(endId);
 		
 		//Get earliest trips
-		StopInTime start = new StopInTime(startStop, depTime, "0");
+		Edge start = new Edge( new StopInTime(startStop, depTime), 
+							   new StopInTime(startStop, depTime) );
 						
-		SortedSet<StopInTime> destinations = transit.getNext(start);
+		SortedSet<Edge> destinations = transit.getNext(start);
 		
-		System.out.println(destinations.first().stop.name + " " + destinations.first().time);
+		System.out.println(destinations.first().first.stop.name + " " + destinations.first().first.time +
+							" to " + destinations.first().second.stop.name + " " + destinations.first().second.time);
 		
 		/*//////////////////////////////////////
 		System.out.println(start.stop.name + " " + start.time + " " + start.stop.id + " ");
@@ -80,46 +91,45 @@ public class RoutePlanner {
 		*///////////////////////////////////////
 		
 		//Initialize queue
-		for (StopInTime s : destinations) 
-			priors.put(s, start);
 		
-		Q.addAll(destinations);
+		//Q.add(destinations.first());
+		Q.add(start);
+		//visited.add(destinations.first().second.stop.id);
 		
-		StopInTime currentStop = null;
+		Edge currentEdge = null;
 		boolean found = false;
 
 		boolean first = true;
 		
 		while (Q.isEmpty() == false) {
 						
-			currentStop = Q.remove();
+			currentEdge = Q.remove();
 			
-			visited.add(currentStop);
+			System.out.println(currentEdge.second.stop.name + " * " + currentEdge.second.time);
+			
+			//visited.add(currentEdge.second.stop);
 						
-			if (currentStop.stop.id.equals(endId)) {
+			if (currentEdge.second.stop.id.equals(endId)) {
 				System.out.println("Id found");
 				found = true;
 				break;
 			}
 			
-			if (currentStop.stop.equals(endStop)) {
-				System.out.println("found");
-				//Destination found
-				found = true;
-				break;
-			}
+			SortedSet<Edge> nextEdges = transit.getNext(currentEdge);
 			
-			SortedSet<StopInTime> nextStops = transit.getNext(currentStop);
-			
-			for (StopInTime s : nextStops) {
-				if (priors.containsKey(s) == false)
-					priors.put(s, currentStop);
-				if (visited.contains(s) == false)
-					Q.add(s);
+			for (Edge e : nextEdges) {
+				if (priors.containsKey(e) == false)
+					priors.put(e, currentEdge);
+				if (visited.contains(e.second.stop.id) == false) {
+					Q.add(e);
+					visited.add(e.second.stop.id);
+					if (e.second.stop.name.equals("FORT TOTTEN METRO STATION"))
+						System.out.println("*****" + "FORT TOTTEN METRO STATION " + e.second.time);
+				}
 			}
 			
 			if (first) {
-				System.out.println(nextStops.first().stop.name + " " + nextStops.first().time);
+				System.out.println(nextEdges.first().first.stop.name + " " + nextEdges.first().first.time);
 				first = false;
 			}
 				
@@ -127,11 +137,11 @@ public class RoutePlanner {
 		
 		if (found) {
 			
-			System.out.println("found! last stop is " + currentStop.stop.name + " at " + currentStop.time);
+			System.out.println("found! last stop is " + currentEdge.second.stop.name + " at " + currentEdge.second.time);
 			
-			while(currentStop.stop != startStop){
-				System.out.println(currentStop.stop.name + " " + currentStop.time);
-				currentStop = priors.get(currentStop);
+			while(currentEdge!= start){
+				System.out.println(currentEdge.second.stop.name + " " + currentEdge.second.time);
+				currentEdge = priors.get(currentEdge);
 			}
 		}	
 		else
@@ -174,14 +184,15 @@ public class RoutePlanner {
 				
 				Stop fromStop = stops.get(prevLineTokens[3]);
 				Stop toStop = stops.get(nextLineTokens[3]);
+				String depTime = prevLineTokens[2];
 				String arrTime = nextLineTokens[2];
-								
-				transit.put(fromStop, new StopInTime(toStop, arrTime, stopSequence));
+				
+				Edge newEdge = new Edge( new StopInTime(fromStop, depTime), new StopInTime(toStop, arrTime));
+				
+				transit.put(fromStop, newEdge);
 				
 				prevLineTokens = nextLineTokens;
-				
-				//if ( fromStop.name.equals("FEDERAL CENTER METRO STATION") &&  )
-				
+							
 			}
 		} catch (FileNotFoundException e) {
 			e.printStackTrace();
@@ -315,26 +326,24 @@ public class RoutePlanner {
 	
 	class TransitSystem {
 		
-		HashMap<Stop, TreeSet<StopInTime>> stopToLaterStops;
+		HashMap<Stop, TreeSet<Edge>> edges;
 		
 		public TransitSystem() {
-			stopToLaterStops = new HashMap< Stop, TreeSet<StopInTime>>();
+			edges = new HashMap< Stop, TreeSet<Edge>>();
 		}
 		
-		public SortedSet<StopInTime> getNext(StopInTime stopInTime) {
+		public SortedSet<Edge> getNext(Edge prior) {
 			
-			TreeSet<StopInTime> set = stopToLaterStops.get(stopInTime.stop);
-						
-			//System.out.println(set);
-			
-			return set.tailSet(stopInTime, false);
+			TreeSet<Edge> set = edges.get(prior.second.stop);
+			Edge t = new Edge(prior.second, prior.second);
+			return set.tailSet(t, true);
 		}
 		
-		public void put(Stop from, StopInTime to) {
-			if ( stopToLaterStops.containsKey(from) == false ) {
-				stopToLaterStops.put(from, new TreeSet<StopInTime>());
+		public void put(Stop from, Edge edge) {
+			if ( edges.containsKey(from) == false ) {
+				edges.put(from, new TreeSet<Edge>());
 			}
-			stopToLaterStops.get(from).add(to);	
+			edges.get(from).add(edge);	
 		}
 		
 	}
@@ -454,12 +463,10 @@ public class RoutePlanner {
 		
 		public Stop stop;
 		public String time;
-		public String stopSequence;
 		
-		public StopInTime(Stop stop, String time, String stopSequence) {
+		public StopInTime(Stop stop, String time) {
 			this.stop = stop;
 			this.time = time;
-			this.stopSequence = stopSequence;
 		}
 		
 		@Override
@@ -484,8 +491,28 @@ public class RoutePlanner {
 		}
 	}
 	
-	class Edge {
+	class Edge implements Comparable<Edge> {
+		StopInTime first;
+		StopInTime second;
 		
+		public Edge(StopInTime first, StopInTime second) {
+			this.first = first;
+			this.second = second;
+		}
+		
+		@Override
+		public int compareTo(Edge later) {
+			try {
+				int result = this.first.time.compareTo(later.first.time);
+			} catch(Exception e) {
+				System.out.println(later.first.stop == null? "null" : later.first.stop);
+				System.out.println(later.first.stop.name == null? "null" : later.first.stop.name);
+				System.out.println(later.first.time == null? "null" : later.first.time);
+				System.out.println(later.second.stop.name == null? "null" : later.second.stop.name);
+				System.out.println(later.second.time == null? "null" : later.second.time);
+			}
+			return this.first.time.compareTo(later.first.time);
+		}
 	}
 	
 	 
